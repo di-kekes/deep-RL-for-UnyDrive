@@ -7,7 +7,7 @@ n_act = 5
 steps_done = 1_000_000_000
 
 # загрузка модели, внутрь torch.load() необходимо писать абсолютный путь
-model = torch.load('')
+model = torch.load('/agent/models/checkpoints_pNet/exp_fix_vanillaDQN.pth')
 policy_net = DQN_model.DQN(n_obs, n_act)
 policy_net.load_state_dict(model['net_state_dict'])
 policy_net.eval()

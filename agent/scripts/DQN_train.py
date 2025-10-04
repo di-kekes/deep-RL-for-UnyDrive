@@ -42,8 +42,9 @@ if command == 'new':
     optimizer = optim.AdamW(policy_network.parameters(), lr=1e-4, amsgrad=True)
 
 elif command == 'old':
-    model = torch.load('C:/Users/yaroslave/PycharmProjects/firstAI/DQN_network/models/checkpoints_pNet/'
-                       'save_by_episode_350.pth')
+    # принимает абсолютный путь к модели
+    model = torch.load('C:/ml_project/agent/models/new_models/save_by_episode_150.pth')
+    steps_done = 300_000
     # сети
     target_network = DQN_model.DQN(n_obs, n_act)
     policy_network = DQN_model.DQN(n_obs, n_act)
@@ -78,6 +79,7 @@ for episode in range(1, num_episodes + 1):
     while not done:
         # выбор действия
         action, epsilon, steps_done = DQN_model.select_action(state, policy_network, a_space, steps_done)
+        print(state)
 
         # выполнение действия
         next_state, reward, term, trunk, _ = envrmnt.step(action)
@@ -120,8 +122,7 @@ for episode in range(1, num_episodes + 1):
                 'steps_done': steps_done,
                 'memory': memory
             },
-            f"C:/Users/yaroslave/PycharmProjects/firstAI/DQN_network/models/checkpoints_pNet/save_by_episode_"
-            f"{episode}.pth"
+            f"C:/ml_project/agent/models/checkpoints_pNet/save_by_episode_"f"{episode}.pth"
         )
 
         print(f"✔ Модель сохранена на {episode} эпизоде")
@@ -133,7 +134,8 @@ torch.save({
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epsilon': epsilon,
                 'steps_done': steps_done,
-            }, "C:/Users/yaroslave/PycharmProjects/firstAI/DQN_network/models/new_models/new_final_policy_net.pth")
+                'memory': memory
+            }, "C:/ml_project/agent/models/new_models/new_final_policy_net.pth")
 print("✔ Обучение завершено. Финальная модель сохранена.")
 
 writer.close()
