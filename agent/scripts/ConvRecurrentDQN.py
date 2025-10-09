@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
+import math
+import random
 
 
 class ConvRecurrentDQN(nn.Module):
@@ -53,49 +55,76 @@ class ConvRecurrentDQN(nn.Module):
         q = self.head(last)                         # (B, n_actions)
         return q, hidden
 
-    def optimize_model(self, policy_net, target_net, batch, gamma, device, optimizer):
-        """
-        compute loss
-        optimize model
-        """
-        states, actions, rewards, next_states, dones = batch
-        states = states.to(device)
-        actions = actions.to(device)
-        rewards = rewards.to(device)
-        next_states = next_states.to(device)
-        dones = dones.to(device)
 
-        B, S, obs = states.shape
+def optimize_model(policy_net, target_net, batch, gamma, tau, device, optimizer):
+    """
+    compute loss
+    optimize model
+    """
+    states, actions, rewards, next_states, dones = batch
+    states = states.to(device)
+    actions = actions.to(device)
+    rewards = rewards.to(device)
+    next_states = next_states.to(device)
+    dones = dones.to(device)
 
-        # Predicted Q for last timestep from policy_net (use full sequence to get hidden)
-        q_pred, _ = policy_net(states)      # (B, n_actions)
+    # Predicted Q for last timestep from policy_net (use full sequence to get hidden)
+    q_pred, _ = policy_net(states)      # (B, n_actions)
 
-        # actions for last step:
-        actions_last = actions[:, -1]       # (B)
-        q_pred_a = q_pred.gather(1, actions_last.unsqueeze(1)).squeeze(1)      # (B)
+    # actions for last step:
+    actions_last = actions[:, -1]       # (B)
+    q_pred_a = q_pred.gather(1, actions_last.squeeze(-1)).squeeze(1)      # (B)
 
-        # расчет таргета:
-        next_state_last = next_states[:, -1, :].unsqueeze(1)
+    # расчет таргета:
+    next_state_last = next_states[:, -1, :].unsqueeze(1)
 
-        # выбор действия с помощью double DQN
+    # выбор действия с помощью double DQN
+    with torch.no_grad():
+        # выбор policy сетью
+        q_next_policy, _ = policy_net(next_state_last)
+        next_actions = q_next_policy.argmax(dim=1, keepdim=True)
+
+        # оценка target сетью
+        q_next_target, _ = target_net(next_state_last)
+        q_target_next_val = q_next_target.gather(1, next_actions).squeeze(1)
+
+        reward_last = rewards[:, -1]
+        done_last = dones[:, -1]
+        targets = reward_last + gamma * (1.0 - done_last) * q_target_next_val
+
+    loss = f.smooth_l1_loss(q_pred_a, targets)
+
+    optimizer.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 5.0)
+    optimizer.step()
+
+    # обновление target-сети (soft update)
+    for param, target_param in zip(policy_net.parameters(), target_net.parameters()):
+        target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
+
+    return loss.item()
+
+
+def select_action(state, hidden, net, action_space, steps_done, EPS_END, EPS_START, EPS_DECAY):
+    # e жадная стратегия выбора действия
+    if not isinstance(state, torch.Tensor):
+        state = torch.tensor(state, dtype=torch.float32)
+
+        # перевод тензора состояния в необходимый вид (0, 0, obs_dim)
+    state = state.unsqueeze(0).unsqueeze(0).to(next(net.parameters()).device)
+
+    # расчет значения eps и sample
+    sample = random.random()
+    eps_treshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1 * steps_done / EPS_DECAY)
+    steps_done += 1
+
+    if sample > eps_treshold:
         with torch.no_grad():
-            # выбор policy сетью
-            q_next_policy, _ = policy_net(next_state_last)
-            next_actions = q_next_policy.argmax(dim=1, keepdim=True)
+            q_values, new_hidden = net(state, hidden)
+            action = q_values.max(1)[1].view(1, 1)
+    else:
+        action = torch.tensor([[action_space.sample()]], dtype=torch.long, device=next(net.parameters()).device)
+        new_hidden = hidden
 
-            # оценка target сетью
-            q_next_target, _ = target_net(next_state_last)
-            q_target_next_val = q_next_target.gather(1, next_actions).squeeze(1)
-
-            reward_last = rewards[:, -1]
-            done_last = dones[:, -1]
-            targets = reward_last + gamma * (1.0 - done_last) * q_target_next_val
-
-        loss = f.smooth_l1_loss(q_pred_a, targets)
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 5.0)
-        optimizer.step()
-
-        return loss.item()
+    return action, new_hidden, eps_treshold, steps_done
