@@ -16,6 +16,10 @@ class SequenceReplayBuffer:
     def __len__(self):
         return self.size
 
+    def num_episodes(self):
+        # Возвращает количество завершённых эпизодов в буфере
+        return len(self.buffer)
+
     # start episodes
     def start_episode(self):
         if len(self.current_episode) > 0:
@@ -35,7 +39,7 @@ class SequenceReplayBuffer:
         # evict
         while self.size > self.capacity:
             removed = self.buffer.pop(0)
-            self.size -= removed
+            self.size -= len(removed)
         self.current_episode = []
 
     def push(self, state, action, reward, next_state, done):
